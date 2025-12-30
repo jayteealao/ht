@@ -319,13 +319,13 @@ fn start_pty(
     input_rx: mpsc::Receiver<Vec<u8>>,
     output_tx: mpsc::Sender<Vec<u8>>,
 ) -> Result<(i32, JoinHandle<Result<i32>>)> {
-    let command_str = if command.is_empty() {
-        "bash".to_string()
+    let command_vec: Vec<String> = if command.is_empty() {
+        vec!["bash".to_string()]
     } else {
-        command.join(" ")
+        command.to_vec()
     };
-    eprintln!("launching \"{}\" in terminal of size {}", command_str, size);
-    let (pid, fut) = pty::spawn(command_str, size, input_rx, output_tx)?;
+    eprintln!("launching {:?} in terminal of size {}", command_vec, size);
+    let (pid, fut) = pty::spawn(&command_vec, size, input_rx, output_tx)?;
 
     Ok((pid, tokio::spawn(fut)))
 }

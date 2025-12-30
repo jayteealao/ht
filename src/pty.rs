@@ -16,7 +16,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
 pub fn spawn(
-    command: String,
+    command: &[String],
     winsize: &pty::Winsize,
     input_rx: mpsc::Receiver<Vec<u8>>,
     output_tx: mpsc::Sender<Vec<u8>>,
@@ -146,8 +146,8 @@ async fn do_drive_child(
     }
 }
 
-fn exec(command: String) -> io::Result<()> {
-    let command = ["/bin/sh".to_owned(), "-c".to_owned(), command]
+fn exec(command: &[String]) -> io::Result<()> {
+    let command: Vec<CString> = command
         .iter()
         .map(|s| CString::new(s.as_bytes()))
         .collect::<Result<Vec<CString>, NulError>>()?;

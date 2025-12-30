@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Instant;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{connect_async_with_config, tungstenite::protocol::Message};
 
@@ -64,7 +64,11 @@ impl AsciinemaServerStreamer {
         }
     }
 
-    pub async fn run(&mut self, clients_tx: &mpsc::Sender<crate::session::Client>) -> Result<()> {
+    pub async fn run(
+        &mut self,
+        clients_tx: &mpsc::Sender<crate::session::Client>,
+        ready_tx: Option<oneshot::Sender<()>>,
+    ) -> Result<()> {
         // Get install ID
         let install_id = self.get_install_id()?;
 
@@ -85,6 +89,11 @@ impl AsciinemaServerStreamer {
 
         // Subscribe to events
         let mut events = crate::session::stream(clients_tx).await?;
+
+        // Signal that we're subscribed and ready to receive events
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(());
+        }
 
         while let Some(event_result) = events.next().await {
             match event_result {

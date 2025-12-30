@@ -100,6 +100,10 @@ impl Session {
         self.vt.cursor_key_app_mode()
     }
 
+    pub fn set_pid(&mut self, pid: i32) {
+        self.pid = pid;
+    }
+
     pub fn subscribe(&self) -> Subscription {
         let (cols, rows) = self.vt.size();
 

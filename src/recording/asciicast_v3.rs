@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
 
 #[derive(Debug, Clone)]
@@ -60,8 +60,14 @@ impl AsciicastV3Recorder {
     pub async fn run(
         &mut self,
         clients_tx: &mpsc::Sender<crate::session::Client>,
+        ready_tx: Option<oneshot::Sender<()>>,
     ) -> Result<()> {
         let mut events = crate::session::stream(clients_tx).await?;
+
+        // Signal that we're subscribed and ready to receive events
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(());
+        }
 
         while let Some(event_result) = events.next().await {
             match event_result {

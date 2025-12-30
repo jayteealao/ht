@@ -15,7 +15,8 @@ use recording::asciicast_v3::{AsciicastV3Recorder, RecorderConfig, ThemeConfig};
 use session::Session;
 use std::net::{SocketAddr, TcpListener};
 use streaming::asciinema_server::{AsciinemaServerStreamer, StreamProtocol, StreamerConfig};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -133,14 +134,34 @@ async fn run_record_mode(
     let mut recorder = AsciicastV3Recorder::new(recorder_config)?;
     let clients_tx_clone = clients_tx.clone();
 
+    // Create a channel to signal when the recorder is subscribed and ready
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    // Create session early so recorder can subscribe before PTY starts
+    // PID is set to 0 initially; it's only used for the Init event metadata
+    let mut session = build_session(&cli.size, 0);
+
     let recorder_handle = tokio::spawn(async move {
-        recorder.run(&clients_tx_clone).await
+        recorder.run(&clients_tx_clone, Some(ready_tx)).await
     });
 
     start_http_api(cli.listen, clients_tx.clone()).await?;
     let api = start_stdio_api(command_tx, clients_tx, cli.subscribe.unwrap_or_default());
+
+    // Handle the recorder's subscription request before starting PTY
+    // This ensures the recorder is subscribed and won't miss any events
+    let mut clients_rx = clients_rx;
+    if let Some(client) = clients_rx.recv().await {
+        client.accept(session.subscribe());
+    }
+
+    // Wait for recorder to signal it's ready (subscription complete)
+    ready_rx.await.context("recorder failed to signal ready")?;
+
     let (pid, pty) = start_pty(&cli.shell_command, &cli.size, input_rx, output_tx)?;
-    let session = build_session(&cli.size, pid);
+
+    // Update session with actual PID
+    session.set_pid(pid);
 
     let exit_status = run_event_loop(
         output_rx,
@@ -208,14 +229,34 @@ async fn run_stream_mode(
     let mut streamer = AsciinemaServerStreamer::new(streamer_config);
     let clients_tx_clone = clients_tx.clone();
 
+    // Create a channel to signal when the streamer is subscribed and ready
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    // Create session early so streamer can subscribe before PTY starts
+    // PID is set to 0 initially; it's only used for the Init event metadata
+    let mut session = build_session(&cli.size, 0);
+
     let streamer_handle = tokio::spawn(async move {
-        streamer.run(&clients_tx_clone).await
+        streamer.run(&clients_tx_clone, Some(ready_tx)).await
     });
 
     start_http_api(cli.listen, clients_tx.clone()).await?;
     let api = start_stdio_api(command_tx, clients_tx, cli.subscribe.unwrap_or_default());
+
+    // Handle the streamer's subscription request before starting PTY
+    // This ensures the streamer is subscribed and won't miss any events
+    let mut clients_rx = clients_rx;
+    if let Some(client) = clients_rx.recv().await {
+        client.accept(session.subscribe());
+    }
+
+    // Wait for streamer to signal it's ready (subscription complete)
+    ready_rx.await.context("streamer failed to signal ready")?;
+
     let (pid, pty) = start_pty(&cli.shell_command, &cli.size, input_rx, output_tx)?;
-    let session = build_session(&cli.size, pid);
+
+    // Update session with actual PID
+    session.set_pid(pid);
 
     let exit_status = run_event_loop(
         output_rx,

@@ -81,7 +81,7 @@ impl AsciicastV3Recorder {
 
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
-            Event::Init(time, cols, rows, _pid, seq, _text) => {
+            Event::Init(time, cols, rows, _pid, _seq, _text) => {
                 self.start_time = Instant::now();
                 self.last_event_time = Some(self.start_time);
 
@@ -90,8 +90,7 @@ impl AsciicastV3Recorder {
                     self.header_written = true;
                 }
 
-                // Write initial output as first event with 0 interval
-                self.write_event(0.0, "o", &seq)?;
+                // Do NOT emit init seq - recording starts from first real output
             }
 
             Event::Output(_time, data) => {
@@ -117,8 +116,7 @@ impl AsciicastV3Recorder {
 
             Event::Exit(_time, status) => {
                 let interval = self.calculate_interval();
-                let status_str = status.to_string();
-                self.write_event(interval, "x", &status_str)?;
+                self.write_event_with_number(interval, "x", status)?;
             }
 
             Event::Snapshot(_, _, _, _) | Event::Input(_, _) => {
@@ -183,6 +181,15 @@ impl AsciicastV3Recorder {
     }
 
     fn write_event(&mut self, interval: f64, code: &str, data: &str) -> Result<()> {
+        let event = json!([interval, code, data]);
+        writeln!(self.writer, "{}", event)?;
+
+        // Flush frequently to avoid data loss on crash
+        self.writer.flush()?;
+        Ok(())
+    }
+
+    fn write_event_with_number(&mut self, interval: f64, code: &str, data: i32) -> Result<()> {
         let event = json!([interval, code, data]);
         writeln!(self.writer, "{}", event)?;
 

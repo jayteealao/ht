@@ -309,3 +309,6 @@ mod tests {
         std::fs::remove_file(test_file).ok();
     }
 }
+
+#[cfg(test)]
+mod golden_tests;

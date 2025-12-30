@@ -1,0 +1,8 @@
+{"version":3,"term":{"cols":80,"rows":24,"type":"xterm-256color"},"timestamp":1504467315}
+[0.248,"o","\u001b[1;31mHello \u001b[32mWorld!\u001b[0m\n"]
+[1.001,"o","That was ok\rThis is better."]
+[3.500,"m","checkpoint"]
+[0.143,"o","Now... "]
+[2.050,"r","90x30"]
+[1.541,"o","Bye!"]
+[0.887,"x",0]

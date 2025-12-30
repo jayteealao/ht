@@ -11,6 +11,7 @@ pub const ALIS_MAGIC: &[u8] = b"ALiS\x01";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
     Init = 0x01,
+    EOT = 0x04,     // End of Transmission
     Output = 0x6F,  // 'o'
     Input = 0x69,   // 'i'
     Resize = 0x72,  // 'r'
@@ -220,6 +221,20 @@ pub fn encode_exit(id: u64, rel_time: u64, status: i32) -> Vec<u8> {
     buf
 }
 
+/// Encode EOT (End of Transmission) event
+///
+/// This event signals the end of a stream without closing the WebSocket connection.
+/// Useful for persistent connections across session restarts.
+pub fn encode_eot(id: u64, rel_time: u64) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    buf.push(EventType::EOT as u8);
+    buf.extend_from_slice(&encode_leb128(id));
+    buf.extend_from_slice(&encode_leb128(rel_time));
+
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +312,16 @@ mod tests {
         assert_eq!(encoded[2], 0xC8); // rel_time = 200
         assert_eq!(encoded[3], 0x01);
         assert_eq!(encoded[4], 0x00); // status = 0
+    }
+
+    #[test]
+    fn test_eot_event_encoding() {
+        let encoded = encode_eot(5, 300);
+        assert_eq!(encoded[0], EventType::EOT as u8);
+        assert_eq!(encoded[1], 0x05); // id = 5
+        assert_eq!(encoded[2], 0xAC); // rel_time = 300 (0xAC, 0x02 in LEB128)
+        assert_eq!(encoded[3], 0x02);
+        assert_eq!(encoded.len(), 4); // No data payload
     }
 
     #[test]

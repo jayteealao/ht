@@ -4,7 +4,7 @@ use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -127,7 +127,7 @@ impl AsciicastV3Recorder {
         Ok(())
     }
 
-    fn write_header(&mut self, cols: usize, rows: usize, timestamp: f64) -> Result<()> {
+    fn write_header(&mut self, cols: usize, rows: usize, _timestamp: f64) -> Result<()> {
         let mut header = json!({
             "version": 3,
             "term": {
@@ -151,7 +151,12 @@ impl AsciicastV3Recorder {
             header["term"]["theme"] = theme_obj;
         }
 
-        header["timestamp"] = json!(timestamp as i64);
+        // Use actual Unix timestamp instead of event time
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        header["timestamp"] = json!(timestamp);
 
         if let Some(idle_limit) = self.config.idle_time_limit {
             header["idle_time_limit"] = json!(idle_limit);

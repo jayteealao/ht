@@ -113,6 +113,11 @@ fn build_command(value: serde_json::Value) -> Result<Command, String> {
 
         Some("takeSnapshot") => Ok(Command::Snapshot),
 
+        Some("mark") => {
+            let label = value["label"].as_str().unwrap_or("").to_string();
+            Ok(Command::Marker(label))
+        }
+
         other => Err(format!("invalid command type: {other:?}")),
     }
 }

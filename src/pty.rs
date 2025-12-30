@@ -20,7 +20,7 @@ pub fn spawn(
     winsize: &pty::Winsize,
     input_rx: mpsc::Receiver<Vec<u8>>,
     output_tx: mpsc::Sender<Vec<u8>>,
-) -> Result<(i32, impl Future<Output = Result<()>>)> {
+) -> Result<(i32, impl Future<Output = Result<i32>>)> {
     let result = unsafe { pty::forkpty(Some(winsize), None) }?;
 
     match result.fork_result {
@@ -41,19 +41,24 @@ async fn drive_child(
     master: OwnedFd,
     input_rx: mpsc::Receiver<Vec<u8>>,
     output_tx: mpsc::Sender<Vec<u8>>,
-) -> Result<()> {
+) -> Result<i32> {
     let result = do_drive_child(master, input_rx, output_tx).await;
     eprintln!("sending HUP signal to the child process");
     unsafe { libc::kill(child.as_raw(), libc::SIGHUP) };
     eprintln!("waiting for the child process to exit");
 
-    tokio::task::spawn_blocking(move || {
-        let _ = wait::waitpid(child, None);
+    let exit_status = tokio::task::spawn_blocking(move || {
+        match wait::waitpid(child, None) {
+            Ok(wait::WaitStatus::Exited(_, status)) => status,
+            Ok(wait::WaitStatus::Signaled(_, signal, _)) => 128 + signal as i32,
+            _ => 1,
+        }
     })
     .await
     .unwrap();
 
-    result
+    result?;
+    Ok(exit_status)
 }
 
 const READ_BUF_SIZE: usize = 128 * 1024;

@@ -35,6 +35,7 @@ pub async fn start(
 
     let app: Router<()> = Router::new()
         .route("/ws/alis", get(alis_handler))
+        .route("/ws/alis-v1", get(alis_v1_handler))
         .route("/ws/events", get(event_stream_handler))
         .with_state(clients_tx)
         .fallback(static_handler);
@@ -46,7 +47,7 @@ pub async fn start(
     .into_future())
 }
 
-/// ALiS protocol handler
+/// ALiS protocol handler (JSON format)
 ///
 /// This endpoint implements ALiS (asciinema live stream) protocol (https://docs.asciinema.org/manual/alis/).
 /// It allows pointing asciinema player directly to ht to get a real-time terminal preview.
@@ -57,6 +58,20 @@ async fn alis_handler(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let _ = handle_alis_socket(socket, clients_tx).await;
+    })
+}
+
+/// ALiS v1 binary protocol handler
+///
+/// This endpoint implements ALiS v1 binary protocol for better performance.
+/// It sends the magic string and binary-encoded events.
+async fn alis_v1_handler(
+    ws: ws::WebSocketUpgrade,
+    ConnectInfo(_addr): ConnectInfo<SocketAddr>,
+    State(clients_tx): State<mpsc::Sender<session::Client>>,
+) -> impl IntoResponse {
+    ws.protocols(["v1.alis"]).on_upgrade(move |socket| async move {
+        let _ = crate::streaming::alis_local::handle_alis_binary_socket_stateful(socket, clients_tx).await;
     })
 }
 
@@ -101,7 +116,11 @@ async fn alis_message(
             format!("{cols}x{rows}")
         ])))),
 
-        Ok(Snapshot(_, _, _, _)) => None,
+        Ok(Marker(time, label)) => Some(Ok(json_message(json!([time, "m", label])))),
+
+        Ok(Exit(time, status)) => Some(Ok(json_message(json!([time, "x", status.to_string()])))),
+
+        Ok(Input(_, _)) | Ok(Snapshot(_, _, _, _)) => None,
 
         Err(e) => Some(Err(axum::Error::new(e))),
     }

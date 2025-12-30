@@ -3,6 +3,7 @@ pub enum Command {
     Input(Vec<InputSeq>),
     Snapshot,
     Resize(usize, usize),
+    Marker(String),
 }
 
 #[derive(Debug, PartialEq)]

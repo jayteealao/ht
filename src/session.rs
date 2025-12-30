@@ -21,6 +21,9 @@ pub enum Event {
     Output(f64, String),
     Resize(f64, usize, usize),
     Snapshot(usize, usize, String, String),
+    Marker(f64, String),
+    Input(f64, String),
+    Exit(f64, i32),
 }
 
 pub struct Client(oneshot::Sender<Subscription>);
@@ -70,6 +73,27 @@ impl Session {
             self.vt.dump(),
             self.text_view(),
         ));
+    }
+
+    pub fn marker(&mut self, label: String) {
+        let time = self.start_time.elapsed().as_secs_f64();
+        let _ = self.broadcast_tx.send(Event::Marker(time, label));
+        self.stream_time = time;
+        self.last_event_time = Instant::now();
+    }
+
+    pub fn input(&mut self, data: String) {
+        let time = self.start_time.elapsed().as_secs_f64();
+        let _ = self.broadcast_tx.send(Event::Input(time, data));
+        self.stream_time = time;
+        self.last_event_time = Instant::now();
+    }
+
+    pub fn exit(&mut self, status: i32) {
+        let time = self.start_time.elapsed().as_secs_f64();
+        let _ = self.broadcast_tx.send(Event::Exit(time, status));
+        self.stream_time = time;
+        self.last_event_time = Instant::now();
     }
 
     pub fn cursor_key_app_mode(&self) -> bool {
@@ -143,6 +167,27 @@ impl Event {
                     "rows": rows,
                     "seq": seq,
                     "text": text,
+                })
+            }),
+
+            Event::Marker(_time, label) => json!({
+                "type": "marker",
+                "data": json!({
+                    "label": label
+                })
+            }),
+
+            Event::Input(_time, data) => json!({
+                "type": "input",
+                "data": json!({
+                    "data": data
+                })
+            }),
+
+            Event::Exit(_time, status) => json!({
+                "type": "exit",
+                "data": json!({
+                    "status": status
                 })
             }),
         }

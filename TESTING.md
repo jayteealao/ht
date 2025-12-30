@@ -55,67 +55,92 @@ cargo test --release
 - Stream to local ALiS endpoint and decode binary messages
 - Compare against asciinema CLI output (if installed)
 
-## Known Issues from Upstream Comparison
+## Compliance Status
 
-See `docs/UPSTREAM_COMPARISON.md` for full analysis.
+See `docs/UPSTREAM_COMPARISON.md` and `docs/VALIDATION_SUMMARY.md` for full analysis.
 
-### Critical Issues
+**Current Status**: ✅ **100% COMPLIANT** (22/22 features passing)
 
-#### Issue #1: Exit Event Data Type (NEEDS VERIFICATION)
+All critical and medium priority issues have been resolved:
 
-**Status**: ⚠️ UNRESOLVED
+### Issue #1: Exit Event Data Type ✅ FIXED
 
-Our code currently uses:
+**Status**: ✅ RESOLVED (commit 979b2ee)
+
+**What was wrong**: Exit event used string instead of integer
 ```rust
+// Before (WRONG):
 let status_str = status.to_string();
-self.write_event(interval, "x", &status_str)?;
+self.write_event(interval, "x", &status_str)?;  // → [0.887, "x", "0"]
 ```
 
-This produces: `[0.887, "x", "0"]` (string)
-
-The spec says: "data is a numerical exit status"
-
-Golden fixture has: `[0.887, "x", 0]` (integer)
-
-**Test**: `test_exit_event_data_type()` currently expects integer.
-
-**Action Required**: Verify with actual asciinema CLI output and fix if needed.
-
-#### Issue #2: Spurious Init Output Event
-
-**Status**: ❌ CONFIRMED BUG
-
-Our code emits init `seq` as first output event:
+**Fix**: Added `write_event_with_number()` method
 ```rust
+// After (CORRECT):
+self.write_event_with_number(interval, "x", status)?;  // → [0.887, "x", 0]
+```
+
+**Test**: `test_exit_event_data_type()` - **PASS** ✅
+
+### Issue #2: Spurious Init Output Event ✅ FIXED
+
+**Status**: ✅ RESOLVED (commit 979b2ee)
+
+**What was wrong**: Emitted terminal dump as first output event
+```rust
+// Before (WRONG):
 Event::Init(time, cols, rows, _pid, seq, _text) => {
     self.write_header(cols, rows, time)?;
-    self.write_event(0.0, "o", &seq)?;  // BUG!
+    self.write_event(0.0, "o", &seq)?;  // BUG - removed
 }
 ```
 
-This is WRONG. Initial terminal state should NOT be emitted.
+**Fix**: Removed spurious write_event() call
+```rust
+// After (CORRECT):
+Event::Init(time, cols, rows, _pid, _seq, _text) => {
+    self.write_header(cols, rows, time)?;
+    // Do NOT emit init seq - recording starts from first real output
+}
+```
 
-**Test**: `test_our_writer_no_spurious_init_output()` validates this.
+**Test**: `test_our_writer_no_spurious_init_output()` - **PASS** ✅
 
-**Action Required**: Remove line 95-96 in `recording/asciicast_v3.rs`.
+### Issue #3: EOT Support ✅ IMPLEMENTED
 
-### Medium Priority Issues
+**Status**: ✅ RESOLVED (commit e33e4d2)
 
-#### Issue #3: Missing EOT Support
+**What was added**: Complete ALiS v1 EOT (End of Transmission) support
 
-**Status**: ❌ NOT IMPLEMENTED
+**Implementation**:
+- Added `EventType::EOT = 0x04` to event enum
+- Implemented `encode_eot(id, rel_time)` function
+- Format: EventType + LastId + RelTime (no data payload)
 
-ALiS spec requires EOT (0x04) event for persistent connections.
+**Purpose**: Signals stream end without closing WebSocket connection
 
-**Action Required**: Implement in `streaming/alis.rs` and handle in event loop.
+**Test**: `test_eot_event_encoding()` - **PASS** ✅
 
-#### Issue #4: Timestamp Type
+### Issue #4: Timestamp Type ✅ FIXED
 
-**Status**: ⚠️ MINOR INCONSISTENCY
+**Status**: ✅ RESOLVED (commit e33e4d2)
 
-We cast `f64` to `i64` for header timestamp. Should use actual Unix timestamp.
+**What was wrong**: Header timestamp used event time cast to i64
 
-**Action Required**: Fix in `recording/asciicast_v3.rs:157`.
+**Fix**: Use actual Unix timestamp
+```rust
+// Before (WRONG):
+header["timestamp"] = json!(timestamp as i64);
+
+// After (CORRECT):
+let timestamp = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+header["timestamp"] = json!(timestamp);
+```
+
+**Location**: `src/recording/asciicast_v3.rs:154-159`
 
 ## Running Comparisons Locally
 
@@ -235,24 +260,51 @@ hexdump -C testdata/your_event.bin
 
 ## Debugging Test Failures
 
-### "Exit event data type mismatch"
+All known issues have been fixed. If you encounter test failures:
 
-Check what asciinema CLI actually produces:
+### General Debugging Steps
+
+1. **Run specific test with output**:
 ```bash
-asciinema rec /tmp/test.cast -c "exit 42"
-tail -1 /tmp/test.cast | jq '.[2]'
+cargo test test_name -- --nocapture
 ```
 
-If it's a string, our code is correct. If it's a number, we need to fix.
+2. **Check test against spec**:
+- Review `docs/UPSTREAM_COMPARISON.md` for spec references
+- Compare against examples at https://docs.asciinema.org
+
+3. **Verify test fixtures are intact**:
+```bash
+# Validate golden .cast file
+jq -e . testdata/golden_minimal.cast
+
+# Check binary fixtures
+hexdump -C testdata/alis_init_example.bin
+```
+
+### "Exit event data type mismatch"
+
+**This should not occur** - fixed in commit 979b2ee.
+
+If it does, verify the fix is present at `src/recording/asciicast_v3.rs:117-119`:
+```rust
+Event::Exit(_time, status) => {
+    let interval = self.calculate_interval();
+    self.write_event_with_number(interval, "x", status)?;  // Must use write_event_with_number
+}
+```
 
 ### "Spurious init output event"
 
-This is a known bug. The test SHOULD fail until we fix line 95-96.
+**This should not occur** - fixed in commit 979b2ee.
 
-To verify the fix works:
-```bash
-cargo test test_our_writer_no_spurious_init_output -- --nocapture
+If it does, verify lines 93-94 in `src/recording/asciicast_v3.rs` are NOT present:
+```rust
+// These lines should NOT exist:
+// self.write_event(0.0, "o", &seq)?;
 ```
+
+The Init handler should only call `write_header()`, not emit any events.
 
 ### "ALiS binary mismatch"
 

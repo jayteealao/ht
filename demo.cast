@@ -1,0 +1,2 @@
+{"command":"bash -c echo Hello && exit","term":{"cols":120,"rows":40},"timestamp":1767136746,"version":3}
+[0.006182136,"o","Hello\r\n"]
